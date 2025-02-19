@@ -11,14 +11,14 @@ def main():
     if audio_buffer:
         transcript = transcribe_audio(audio_buffer)
         
-        # 3) Extract tasks from transcript
+        # 3) Extract tasks with status and deadlines
         if transcript:
-            tasks = extract_tasks(transcript)
+            task_dicts = extract_tasks(transcript)
             
             # 4) Add tasks to Notion
-            if tasks:
-                for task in tasks:
-                    add_to_notion(task)
+            if task_dicts:
+                for task_dict in task_dicts:
+                    add_to_notion(task_dict)
                 print("🚀 All tasks added to Notion!")
             else:
                 print("⚠️ No tasks extracted.")

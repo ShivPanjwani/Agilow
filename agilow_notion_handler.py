@@ -54,9 +54,9 @@ def group_tasks_by_status(tasks):
             "created_time": created_time
         })
 
-    # Sort tasks by creation time (newest first)
+    # Sort tasks by task number instead of creation time
     for status in grouped_tasks:
-        grouped_tasks[status].sort(key=lambda x: x["created_time"], reverse=True)
+        grouped_tasks[status].sort(key=lambda x: x["task_number"] or float('inf'))
 
     return grouped_tasks
 
@@ -64,10 +64,14 @@ def renumber_tasks(grouped_tasks):
     """ Renumber tasks in each column """
     updates = []
     for status, tasks in grouped_tasks.items():
-        sorted_tasks = sorted(tasks, key=lambda x: x["task_number"] or 0)  # Keep order
+        sorted_tasks = sorted(tasks, key=lambda x: x["task_number"] or 0)
         for index, task in enumerate(sorted_tasks, start=1):
             if task["task_number"] != index:  # Only update if needed
-                updates.append({"id": task["id"], "task_number": index})
+                updates.append({
+                    "id": task["id"],
+                    "task_number": index,
+                    "name": task["name"]  # Add the name to the updates
+                })
     return updates
 
 def format_task_title(task_number, task_name):
@@ -114,29 +118,28 @@ def auto_number_tasks():
     else:
         print("✅ No changes needed!")
 
-def add_to_notion(task_name):
+def add_to_notion(task_dict):
     """
     Adds a task to Notion with automatic numbering
     Returns: Boolean indicating success
     """
     url = "https://api.notion.com/v1/pages"
     
-    # Parse deadline and simplify task name
-    simplified_name, deadline_date = parse_deadline_and_simplify_task(task_name)
+    # No need to parse deadline - GPT already did it
+    task_name = task_dict['task']
+    status = task_dict['status']
+    deadline_date = task_dict['deadline']
     
     # Get current tasks to determine numbering
     tasks = fetch_tasks()
     grouped_tasks = group_tasks_by_status(tasks)
     
-    # Default status is "Not started"
-    status = "Not started"
-    
     # Get next number for this status
     status_tasks = grouped_tasks[status]
-    next_number = 1  # New task always gets number 1
+    next_number = len(status_tasks) + 1
     
     # Format task name with number
-    formatted_name = format_task_title(next_number, simplified_name)
+    formatted_name = format_task_title(next_number, task_name)
     
     data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
@@ -153,12 +156,9 @@ def add_to_notion(task_name):
         }
     }
 
-    # Add deadline if found
-    if deadline_date:
+    if deadline_date:  # deadline_date will be null if not specified
         data["properties"]["Deadline"] = {
-            "date": {
-                "start": deadline_date
-            }
+            "date": {"start": deadline_date}
         }
 
     try:
