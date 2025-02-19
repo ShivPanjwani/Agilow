@@ -17,11 +17,17 @@ def main():
             
             # 4) Add tasks to Notion
             if task_dicts:
+                success_count = 0
                 for task_dict in task_dicts:
-                    add_to_notion(task_dict)
-                print("🚀 All tasks added to Notion!")
+                    if add_to_notion(task_dict):
+                        success_count += 1
+                
+                if success_count > 0:
+                    print(f"🚀 Successfully added {success_count}/{len(task_dicts)} tasks to Notion!")
+                else:
+                    print("⚠️ Failed to add any tasks to Notion.")
             else:
-                print("⚠️ No tasks extracted.")
+                print("⚠️ No valid tasks were extracted.")
 
 if __name__ == "__main__":
     main()

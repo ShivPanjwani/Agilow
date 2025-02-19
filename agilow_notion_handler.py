@@ -1,7 +1,5 @@
 import requests
 from agilow_config import NOTION_API_KEY, NOTION_DATABASE_ID
-from dateutil import parser
-from dateutil.parser import ParserError
 
 # Constants
 NOTION_API_VERSION = "2022-06-28"
@@ -12,7 +10,7 @@ HEADERS = {
 }
 
 def fetch_tasks():
-    """ Fetch all tasks from Notion """
+    """Fetch all tasks from Notion"""
     url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}/query"
     response = requests.post(url, headers=HEADERS)
     
@@ -22,124 +20,21 @@ def fetch_tasks():
         print(f"❌ Error fetching tasks: {response.text}")
         return []
 
-def parse_deadline_and_simplify_task(task_name):
-    """Helper function to parse deadline from task"""
-    try:
-        dt, leftover_tokens = parser.parse(task_name, fuzzy=True, fuzzy_with_tokens=True)
-        leftover_text = "".join(leftover_tokens).strip()
-        leftover_text = leftover_text.strip(",.:- ")
-        final_words = leftover_text.split()
-        if final_words and final_words[-1].lower() in ["by", "on", "before", "due"]:
-            final_words.pop()
-        leftover_text = " ".join(final_words).strip()
-        return leftover_text, dt.date().isoformat()
-    except (ParserError, ValueError):
-        return task_name, None
-
-def group_tasks_by_status(tasks):
-    """ Group tasks by status """
-    grouped_tasks = {"Not started": [], "In Progress": [], "Done": []}
-
-    for task in tasks:
-        status = task["properties"]["Status"]["status"]["name"]
-        task_id = task["id"]
-        task_name = task["properties"]["Name"]["title"][0]["text"]["content"]
-        task_number = task["properties"].get("Task Number", {}).get("number", None)
-        created_time = task["created_time"]  # Add this to help with ordering
-        
-        grouped_tasks[status].append({
-            "id": task_id,
-            "name": task_name,
-            "task_number": task_number,
-            "created_time": created_time
-        })
-
-    # Sort tasks by task number instead of creation time
-    for status in grouped_tasks:
-        grouped_tasks[status].sort(key=lambda x: x["task_number"] or float('inf'))
-
-    return grouped_tasks
-
-def renumber_tasks(grouped_tasks):
-    """ Renumber tasks in each column """
-    updates = []
-    for status, tasks in grouped_tasks.items():
-        sorted_tasks = sorted(tasks, key=lambda x: x["task_number"] or 0)
-        for index, task in enumerate(sorted_tasks, start=1):
-            if task["task_number"] != index:  # Only update if needed
-                updates.append({
-                    "id": task["id"],
-                    "task_number": index,
-                    "name": task["name"]  # Add the name to the updates
-                })
-    return updates
-
-def format_task_title(task_number, task_name):
+def format_task_title(number, task_name):
     """Format task title with number prefix"""
-    return f"{task_number}. {task_name}"
-
-def update_task_title_and_number(task_id, new_number, task_name):
-    """Update both task number property and title"""
-    url = f"https://api.notion.com/v1/pages/{task_id}"
-    data = {
-        "properties": {
-            "Name": {
-                "title": [{"text": {"content": format_task_title(new_number, task_name)}}]
-            },
-            "Task Number": {
-                "number": new_number
-            }
-        }
-    }
-    response = requests.patch(url, headers=HEADERS, json=data)
-    return response.status_code >= 200 and response.status_code < 300
-
-def update_tasks(updates):
-    """ Push renumbering updates to Notion """
-    for update in updates:
-        task_id = update["id"]
-        new_number = update["task_number"]
-        task_name = update["name"]
-        
-        if update_task_title_and_number(task_id, new_number, task_name):
-            print(f"✅ Updated Task {task_id} to {new_number}")
-        else:
-            print(f"❌ Failed to update {task_id}")
-
-def auto_number_tasks():
-    """ Full automation function """
-    tasks = fetch_tasks()
-    grouped_tasks = group_tasks_by_status(tasks)
-    updates = renumber_tasks(grouped_tasks)
-    
-    if updates:
-        update_tasks(updates)
-        print("✅ Task renumbering completed!")
-    else:
-        print("✅ No changes needed!")
+    return f"{number}. {task_name}"
 
 def add_to_notion(task_dict):
-    """
-    Adds a task to Notion with automatic numbering
-    Returns: Boolean indicating success
-    """
+    """Add a task to Notion"""
     url = "https://api.notion.com/v1/pages"
     
-    # No need to parse deadline - GPT already did it
     task_name = task_dict['task']
     status = task_dict['status']
     deadline_date = task_dict['deadline']
-    
-    # Get current tasks to determine numbering
-    tasks = fetch_tasks()
-    grouped_tasks = group_tasks_by_status(tasks)
-    
-    # Get next number for this status
-    status_tasks = grouped_tasks[status]
-    next_number = len(status_tasks) + 1
+    number = task_dict['number']  # GPT provides the number
     
     # Format task name with number
-    formatted_name = format_task_title(next_number, task_name)
+    formatted_name = format_task_title(number, task_name)
     
     data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
@@ -151,12 +46,12 @@ def add_to_notion(task_dict):
                 "status": {"name": status}
             },
             "Task Number": {
-                "number": next_number
+                "number": number
             }
         }
     }
 
-    if deadline_date:  # deadline_date will be null if not specified
+    if deadline_date:
         data["properties"]["Deadline"] = {
             "date": {"start": deadline_date}
         }
@@ -164,12 +59,7 @@ def add_to_notion(task_dict):
     try:
         response = requests.post(url, headers=HEADERS, json=data)
         if response.status_code >= 200 and response.status_code < 300:
-            result = response.json()
-            page_url = result.get("url", "No page URL returned.")
-            print(f"✅ Task added to Notion: {page_url}")
-            
-            # Run auto-numbering to ensure everything is in order
-            auto_number_tasks()
+            print(f"✅ Task added to Notion")
             return True
         else:
             print(f"❌ Notion API error {response.status_code}: {response.text}")
@@ -177,6 +67,3 @@ def add_to_notion(task_dict):
     except Exception as e:
         print(f"❌ Notion request failed: {str(e)}")
         return False
-
-# Run the automation
-auto_number_tasks()
