@@ -25,7 +25,7 @@ def format_task_title(number, task_name):
     return f"{number}. {task_name}"
 
 def add_to_notion(task_dict):
-    """Add a task to Notion with optimized duplicate checking"""
+    """Add a task to Notion"""
     url = "https://api.notion.com/v1/pages"
     
     # Check if task already exists with this number and status

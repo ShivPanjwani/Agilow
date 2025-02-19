@@ -27,18 +27,22 @@ def format_board_state(tasks):
     return board_state, statuses
 
 def extract_tasks(transcription):
-    """Extract tasks and maintain correct numbering sequence"""
+    """Extract tasks and maintain sequential numbering"""
     if not transcription:
         return []
 
     current_tasks = fetch_tasks()
-    board_state, current_status_tasks = format_board_state(current_tasks)
+    board_state = format_board_state(current_tasks)
     current_date = datetime.now().strftime("%Y-%m-%d")
 
     # Calculate highest number for each status
     max_numbers = {
-        status: max([t[0] for t in tasks] + [0]) 
-        for status, tasks in current_status_tasks.items()
+        status: max([
+            t["properties"]["Task Number"]["number"] 
+            for t in current_tasks 
+            if t["properties"]["Status"]["status"]["name"] == status
+        ] + [0])
+        for status in ["Not started", "In Progress", "Done"]
     }
 
     prompt = f"""
@@ -48,7 +52,7 @@ def extract_tasks(transcription):
     SPOKEN INPUT TO PROCESS:
     "{transcription}"
 
-    Extract tasks from the above spoken input and return them in this EXACT JSON format:
+    Extract new tasks from the spoken input and return them in this EXACT JSON format:
     [
         {{
             "task": "Task description here",
@@ -61,8 +65,8 @@ def extract_tasks(transcription):
     Rules:
     1. Status must be exactly one of: "Not started", "In Progress", or "Done"
     2. Deadline must be in YYYY-MM-DD format or null
-    3. Number should continue from the last number in each status
-    4. Return ALL tasks as a JSON array
+    3. Number new tasks starting from the highest existing number + 1 in each status
+    4. Return ONLY new tasks as a JSON array
     5. DO NOT include any explanation text, ONLY the JSON array
 
     Current highest numbers:
@@ -70,14 +74,14 @@ def extract_tasks(transcription):
     - In Progress: {max_numbers['In Progress']}
     - Done: {max_numbers['Done']}
     """
-    
+
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a task extraction AI. Always respond with ONLY a valid JSON array of tasks, no other text."
+                    "content": "You are a task extraction AI. Extract new tasks and number them sequentially after existing tasks."
                 },
                 {
                     "role": "user",
@@ -95,7 +99,7 @@ def extract_tasks(transcription):
                 print("❌ Invalid response format: Expected a list of tasks")
                 return []
             
-            # Validate and sort tasks
+            # Validate tasks
             valid_tasks = []
             for task in tasks:
                 if all(key in task for key in ['task', 'status', 'deadline', 'number']):
@@ -103,14 +107,11 @@ def extract_tasks(transcription):
                 else:
                     print(f"⚠️ Skipping invalid task format: {task}")
             
-            # Sort tasks in reverse order for Notion's top-down display
-            valid_tasks.sort(key=lambda x: (-x['number']))
-            
             if not valid_tasks:
                 print("❌ No valid tasks found in response")
                 return []
             
-            print(f"\n📋 Tasks to be added (in order):")
+            print(f"\n📋 Tasks to be added:")
             for task in valid_tasks:
                 deadline = task['deadline'] or 'No deadline'
                 print(f"{task['number']}. {task['task']} ({task['status']}) - Due: {deadline}")
