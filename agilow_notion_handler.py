@@ -25,16 +25,23 @@ def format_task_title(number, task_name):
     return f"{number}. {task_name}"
 
 def add_to_notion(task_dict):
-    """Add a task to Notion"""
+    """Add a task to Notion with optimized duplicate checking"""
     url = "https://api.notion.com/v1/pages"
     
-    task_name = task_dict['task']
-    status = task_dict['status']
-    deadline_date = task_dict['deadline']
-    number = task_dict['number']  # GPT provides the number
+    # Check if task already exists with this number and status
+    existing_tasks = fetch_tasks()
+    task_exists = any(
+        t["properties"]["Task Number"]["number"] == task_dict['number'] and
+        t["properties"]["Status"]["status"]["name"] == task_dict['status']
+        for t in existing_tasks
+    )
     
+    if task_exists:
+        print(f"ℹ️ Task #{task_dict['number']} already exists, skipping...")
+        return True
+        
     # Format task name with number
-    formatted_name = format_task_title(number, task_name)
+    formatted_name = format_task_title(task_dict['number'], task_dict['task'])
     
     data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
@@ -43,23 +50,23 @@ def add_to_notion(task_dict):
                 "title": [{"text": {"content": formatted_name}}]
             },
             "Status": {
-                "status": {"name": status}
+                "status": {"name": task_dict['status']}
             },
             "Task Number": {
-                "number": number
+                "number": task_dict['number']
             }
         }
     }
 
-    if deadline_date:
+    if task_dict['deadline']:
         data["properties"]["Deadline"] = {
-            "date": {"start": deadline_date}
+            "date": {"start": task_dict['deadline']}
         }
 
     try:
         response = requests.post(url, headers=HEADERS, json=data)
         if response.status_code >= 200 and response.status_code < 300:
-            print(f"✅ Task added to Notion")
+            print(f"✅ Added task #{task_dict['number']}: {task_dict['task']}")
             return True
         else:
             print(f"❌ Notion API error {response.status_code}: {response.text}")

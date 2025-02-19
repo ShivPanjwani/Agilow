@@ -7,57 +7,68 @@ import json
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 def format_board_state(tasks):
-    """Format current board state for GPT"""
+    """Format current board state for GPT with sorted task numbers"""
     board_state = "Current Board State:\n"
     statuses = {"Not started": [], "In Progress": [], "Done": []}
     
+    # Group and sort tasks by status and number
     for task in tasks:
         status = task["properties"]["Status"]["status"]["name"]
         name = task["properties"]["Name"]["title"][0]["text"]["content"]
-        statuses[status].append(name)
+        number = task["properties"]["Task Number"]["number"]
+        statuses[status].append((number, name))
     
+    # Format sorted tasks
     for status, tasks in statuses.items():
         board_state += f"\n{status}:\n"
-        for task in tasks:
-            board_state += f"- {task}\n"
+        for number, name in sorted(tasks):
+            board_state += f"{number}. {name}\n"
     
-    return board_state
+    return board_state, statuses
 
 def extract_tasks(transcription):
-    """
-    Extracts tasks with status and deadlines from transcription using GPT-4
-    Returns: List of task dictionaries
-    """
+    """Extract tasks and maintain correct numbering sequence"""
     if not transcription:
         return []
 
-    # Get current board state
     current_tasks = fetch_tasks()
-    board_state = format_board_state(current_tasks)
+    board_state, current_status_tasks = format_board_state(current_tasks)
     current_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Calculate highest number for each status
+    max_numbers = {
+        status: max([t[0] for t in tasks] + [0]) 
+        for status, tasks in current_status_tasks.items()
+    }
 
     prompt = f"""
     {board_state}
     Today's date is {current_date}.
     
-    Based on the current board state and the following spoken input, extract new tasks.
-    For each task:
-    1. Determine the appropriate status (Not started/In Progress/Done)
-    2. Extract any deadlines
-    3. The task number should continue the sequence in its respective column
-    
-    Spoken Input:
-    {transcription}
+    SPOKEN INPUT TO PROCESS:
+    "{transcription}"
 
-    Return a valid JSON array of tasks. Example:
+    Extract tasks from the above spoken input and return them in this EXACT JSON format:
     [
         {{
-            "task": "Review documentation",
+            "task": "Task description here",
             "status": "Not started",
-            "deadline": null,
-            "number": 1  # Based on current column state
+            "deadline": "YYYY-MM-DD",
+            "number": 1
         }}
     ]
+
+    Rules:
+    1. Status must be exactly one of: "Not started", "In Progress", or "Done"
+    2. Deadline must be in YYYY-MM-DD format or null
+    3. Number should continue from the last number in each status
+    4. Return ALL tasks as a JSON array
+    5. DO NOT include any explanation text, ONLY the JSON array
+
+    Current highest numbers:
+    - Not started: {max_numbers['Not started']}
+    - In Progress: {max_numbers['In Progress']}
+    - Done: {max_numbers['Done']}
     """
     
     try:
@@ -66,7 +77,7 @@ def extract_tasks(transcription):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an AI that extracts tasks and determines their proper placement on a Kanban board. Always return a valid JSON array."
+                    "content": "You are a task extraction AI. Always respond with ONLY a valid JSON array of tasks, no other text."
                 },
                 {
                     "role": "user",
@@ -76,8 +87,6 @@ def extract_tasks(transcription):
         )
         
         tasks_json = response.choices[0].message.content.strip()
-        
-        # Clean up the response to handle potential formatting issues
         tasks_json = tasks_json.replace("```json", "").replace("```", "").strip()
         
         try:
@@ -85,8 +94,8 @@ def extract_tasks(transcription):
             if not isinstance(tasks, list):
                 print("❌ Invalid response format: Expected a list of tasks")
                 return []
-                
-            # Validate each task has required fields
+            
+            # Validate and sort tasks
             valid_tasks = []
             for task in tasks:
                 if all(key in task for key in ['task', 'status', 'deadline', 'number']):
@@ -94,11 +103,14 @@ def extract_tasks(transcription):
                 else:
                     print(f"⚠️ Skipping invalid task format: {task}")
             
+            # Sort tasks in reverse order for Notion's top-down display
+            valid_tasks.sort(key=lambda x: (-x['number']))
+            
             if not valid_tasks:
                 print("❌ No valid tasks found in response")
                 return []
-                
-            print(f"\n📋 Extracted Tasks:")
+            
+            print(f"\n📋 Tasks to be added (in order):")
             for task in valid_tasks:
                 deadline = task['deadline'] or 'No deadline'
                 print(f"{task['number']}. {task['task']} ({task['status']}) - Due: {deadline}")
