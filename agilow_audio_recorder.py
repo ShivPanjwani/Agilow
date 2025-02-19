@@ -24,8 +24,8 @@ def record_audio():
             print("\nListening...")
             audio = recognizer.listen(
                 source,
-                timeout=30,            # 30 seconds to start speaking
-                phrase_time_limit=25   # 25 seconds of speech allowed
+                timeout=15,            # 15 seconds to start speaking
+                phrase_time_limit=600   # 600 seconds of speech allowed
             )
             print("⏳ Audio captured, processing...")
             
