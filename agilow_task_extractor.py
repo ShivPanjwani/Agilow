@@ -7,27 +7,27 @@ import json
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 def format_board_state(tasks):
-    """Format current board state for GPT with sorted task numbers"""
+    """Format current board state for GPT"""
     board_state = "Current Board State:\n"
     statuses = {"Not started": [], "In Progress": [], "Done": []}
     
-    # Group and sort tasks by status and number
+    # Group tasks by status
     for task in tasks:
         status = task["properties"]["Status"]["status"]["name"]
         name = task["properties"]["Name"]["title"][0]["text"]["content"]
         number = task["properties"]["Task Number"]["number"]
         statuses[status].append((number, name))
     
-    # Format sorted tasks
+    # Format tasks
     for status, tasks in statuses.items():
         board_state += f"\n{status}:\n"
         for number, name in sorted(tasks):
             board_state += f"{number}. {name}\n"
     
-    return board_state, statuses
+    return board_state
 
 def extract_tasks(transcription):
-    """Extract tasks and maintain sequential numbering"""
+    """Extract tasks from transcription"""
     if not transcription:
         return []
 
@@ -52,7 +52,7 @@ def extract_tasks(transcription):
     SPOKEN INPUT TO PROCESS:
     "{transcription}"
 
-    Extract new tasks from the spoken input and return them in this EXACT JSON format:
+    Extract new tasks and return them in this EXACT JSON format:
     [
         {{
             "task": "Task description here",
@@ -66,8 +66,7 @@ def extract_tasks(transcription):
     1. Status must be exactly one of: "Not started", "In Progress", or "Done"
     2. Deadline must be in YYYY-MM-DD format or null
     3. Number new tasks starting from the highest existing number + 1 in each status
-    4. Return ONLY new tasks as a JSON array
-    5. DO NOT include any explanation text, ONLY the JSON array
+    4. Return ONLY the JSON array
 
     Current highest numbers:
     - Not started: {max_numbers['Not started']}

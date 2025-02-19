@@ -28,7 +28,7 @@ def add_to_notion(task_dict):
     """Add a task to Notion"""
     url = "https://api.notion.com/v1/pages"
     
-    # Check if task already exists with this number and status
+    # Check for duplicate task
     existing_tasks = fetch_tasks()
     task_exists = any(
         t["properties"]["Task Number"]["number"] == task_dict['number'] and
