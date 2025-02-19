@@ -1,0 +1,6 @@
+__pycache__/
+agilow_config.py
+*.pyc
+test_recording.wav
+.env
+.DS_Store

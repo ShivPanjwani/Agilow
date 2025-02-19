@@ -1,0 +1,81 @@
+import speech_recognition as sr
+import io
+import wave
+from openai import OpenAI
+import os
+from agilow_config import OPENAI_API_KEY
+
+def test_recording_and_transcription():
+    """
+    Records audio, saves to WAV, and transcribes using both Google and Whisper
+    """
+    recognizer = sr.Recognizer()
+    
+    # Audio recording settings
+    recognizer.energy_threshold = 100
+    recognizer.pause_threshold = 2.0
+    recognizer.dynamic_energy_threshold = True
+
+    print("\n=== Available Microphones ===")
+    for index, name in enumerate(sr.Microphone.list_microphone_names()):
+        print(f"Microphone {index}: {name}")
+
+    try:
+        with sr.Microphone() as source:
+            print("\n🎤 Speak now... (Recording will stop after silence)")
+            print("Adjusting for ambient noise... Please wait...")
+            
+            recognizer.adjust_for_ambient_noise(source, duration=2)
+            print(f"Energy threshold set to {recognizer.energy_threshold}")
+
+            print("\nListening...")
+            audio = recognizer.listen(
+                source,
+                timeout=20,
+                phrase_time_limit=30
+            )
+            print("⏳ Audio captured, processing...")
+            
+            # Save the audio to WAV file
+            wav_filename = "test_recording.wav"
+            with wave.open(wav_filename, 'wb') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(44100)
+                wav_file.writeframes(audio.get_wav_data())
+            
+            print(f"\n✅ Recording saved: {os.path.abspath(wav_filename)}")
+            
+            # Test transcription with Google
+            print("\n=== Google Transcription Test ===")
+            try:
+                google_transcript = recognizer.recognize_google(audio)
+                print(f"Google Result: {google_transcript}")
+            except Exception as e:
+                print(f"Google transcription failed: {str(e)}")
+            
+            # Transcribe with Whisper
+            print("\n=== Whisper Transcription ===")
+            try:
+                client = OpenAI(api_key=OPENAI_API_KEY)
+                with open(wav_filename, 'rb') as audio_file:
+                    whisper_transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file
+                    )
+                print(f"Whisper Result: {whisper_transcript.text}")
+            except Exception as e:
+                print(f"Whisper transcription failed: {str(e)}")
+
+            return True
+            
+    except sr.WaitTimeoutError:
+        print("⏹️ No speech detected within timeout period.")
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+
+    return False
+
+if __name__ == "__main__":
+    print("=== Starting Audio Test ===")
+    test_recording_and_transcription()
