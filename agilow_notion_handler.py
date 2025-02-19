@@ -24,23 +24,57 @@ def format_task_title(number, task_name):
     """Format task title with number prefix"""
     return f"{number}. {task_name}"
 
-def add_to_notion(task_dict):
-    """Add a task to Notion"""
-    url = "https://api.notion.com/v1/pages"
+def update_task_in_notion(task_dict, existing_task):
+    """Update an existing task in Notion"""
+    page_id = existing_task["id"]
+    url = f"https://api.notion.com/v1/pages/{page_id}"
     
-    # Check for duplicate task
+    # Prepare update data
+    data = {
+        "properties": {
+            "Name": {
+                "title": [{"text": {"content": format_task_title(task_dict['number'], task_dict['task'])}}]
+            },
+            "Status": {
+                "status": {"name": task_dict['status']}
+            },
+            "Task Number": {
+                "number": task_dict['number']
+            },
+            "Deadline": {
+                "date": {"start": task_dict['deadline']} if task_dict['deadline'] else None
+            }
+        }
+    }
+
+    try:
+        response = requests.patch(url, headers=HEADERS, json=data)
+        if response.status_code >= 200 and response.status_code < 300:
+            print(f"✅ Updated deadline for task #{task_dict['number']}")
+            return True
+        else:
+            print(f"❌ Notion API error {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Notion update failed: {str(e)}")
+        return False
+
+def add_to_notion(task_dict):
+    """Add or update a task in Notion"""
+    # Check if task exists
     existing_tasks = fetch_tasks()
-    task_exists = any(
-        t["properties"]["Task Number"]["number"] == task_dict['number'] and
-        t["properties"]["Status"]["status"]["name"] == task_dict['status']
-        for t in existing_tasks
+    existing_task = next(
+        (t for t in existing_tasks 
+         if t["properties"]["Task Number"]["number"] == task_dict['number'] and
+            t["properties"]["Status"]["status"]["name"] == task_dict['status']),
+        None
     )
     
-    if task_exists:
-        print(f"ℹ️ Task #{task_dict['number']} already exists, skipping...")
-        return True
+    if existing_task:
+        return update_task_in_notion(task_dict, existing_task)
         
-    # Format task name with number
+    # Add new task
+    url = "https://api.notion.com/v1/pages"
     formatted_name = format_task_title(task_dict['number'], task_dict['task'])
     
     data = {

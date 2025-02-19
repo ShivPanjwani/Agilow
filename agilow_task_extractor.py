@@ -16,18 +16,26 @@ def format_board_state(tasks):
         status = task["properties"]["Status"]["status"]["name"]
         name = task["properties"]["Name"]["title"][0]["text"]["content"]
         number = task["properties"]["Task Number"]["number"]
-        statuses[status].append((number, name))
+        
+        # Fix deadline handling with proper null checks
+        deadline_prop = task["properties"].get("Deadline", {})
+        if deadline_prop and deadline_prop.get("date"):
+            deadline = deadline_prop["date"].get("start", "No deadline")
+        else:
+            deadline = "No deadline"
+            
+        statuses[status].append((number, name, deadline))
     
     # Format tasks
     for status, tasks in statuses.items():
         board_state += f"\n{status}:\n"
-        for number, name in sorted(tasks):
-            board_state += f"{number}. {name}\n"
+        for number, name, deadline in sorted(tasks):
+            board_state += f"{number}. {name} (Due: {deadline})\n"
     
     return board_state
 
 def extract_tasks(transcription):
-    """Extract tasks from transcription"""
+    """Extract tasks and updates from transcription"""
     if not transcription:
         return []
 
@@ -52,7 +60,11 @@ def extract_tasks(transcription):
     SPOKEN INPUT TO PROCESS:
     "{transcription}"
 
-    Extract new tasks and return them in this EXACT JSON format:
+    You can:
+    1. Create new tasks
+    2. Update deadlines for existing tasks (e.g., "update task 4 deadline to May 15th")
+
+    Return in this EXACT JSON format:
     [
         {{
             "task": "Task description here",
@@ -65,8 +77,9 @@ def extract_tasks(transcription):
     Rules:
     1. Status must be exactly one of: "Not started", "In Progress", or "Done"
     2. Deadline must be in YYYY-MM-DD format or null
-    3. Number new tasks starting from the highest existing number + 1 in each status
-    4. Return ONLY the JSON array
+    3. For new tasks: number starting from highest existing number + 1 in each status
+    4. For updates: use existing task number and name, only update deadline
+    5. Return ONLY the JSON array
 
     Current highest numbers:
     - Not started: {max_numbers['Not started']}
@@ -80,7 +93,7 @@ def extract_tasks(transcription):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a task extraction AI. Extract new tasks and number them sequentially after existing tasks."
+                    "content": "You are a task extraction AI. Extract new tasks and updates from spoken input."
                 },
                 {
                     "role": "user",
@@ -110,7 +123,7 @@ def extract_tasks(transcription):
                 print("❌ No valid tasks found in response")
                 return []
             
-            print(f"\n📋 Tasks to be added:")
+            print(f"\n📋 Tasks to be added/updated:")
             for task in valid_tasks:
                 deadline = task['deadline'] or 'No deadline'
                 print(f"{task['number']}. {task['task']} ({task['status']}) - Due: {deadline}")
