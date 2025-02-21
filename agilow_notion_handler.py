@@ -173,10 +173,54 @@ def delete_from_notion(task_name):
         print(f"❌ Notion archive failed: {str(e)}")
         return False
 
+def add_comment_to_notion(task_dict):
+    """Add a comment to a task in Notion"""
+    existing_tasks = fetch_tasks()
+    task_to_update = next(
+        (t for t in existing_tasks 
+         if t["properties"]["Name"]["title"][0]["text"]["content"].lower() == task_dict['task'].lower()),
+        None
+    )
+    
+    if not task_to_update:
+        print(f"❌ Task not found: {task_dict['task']}")
+        return False
+        
+    page_id = task_to_update["id"]
+    url = "https://api.notion.com/v1/comments"
+    
+    data = {
+        "parent": {
+            "page_id": page_id
+        },
+        "rich_text": [
+            {
+                "type": "text",
+                "text": {
+                    "content": task_dict['comment']
+                }
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(url, headers=HEADERS, json=data)
+        if response.status_code == 200:
+            print(f"✅ Added comment to task: {task_dict['task']}")
+            return True
+        else:
+            print(f"❌ Notion API error {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Notion comment failed: {str(e)}")
+        return False
+
 def handle_task_operations(task_dict):
     """Route task operations to appropriate handlers"""
     if task_dict.get('operation') == 'delete':
         return delete_from_notion(task_dict['task'])
+    elif task_dict.get('operation') == 'comment':
+        return add_comment_to_notion(task_dict)
     elif task_dict.get('operation') == 'rename':
         # Find existing task and update it
         existing_tasks = fetch_tasks()

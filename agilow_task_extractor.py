@@ -69,32 +69,31 @@ def extract_tasks(transcription):
     2. Update existing tasks
     3. Delete tasks when requested
     4. Rename existing tasks
-    5. Update task properties (assignee, deadline)
+    5. Add comments to exsisitng or to new tasks
+    6. Update task properties (assignee, deadline)
 
+  
+    Sometimes you will be given simple, singular task operations.Sometimes you will be given multiple task operations in once command. 
     When multiple operations are requested in a single command, combine ALL operations into ONE JSON array.
     Return ONLY the JSON array, no other text or explanations.
 
-    Example of combined operations in one array:
-    [
-        {{
-            "task": "Task Name",
-            "operation": "delete"
-        }},
-        {{
-            "operation": "rename",
-            "old_name": "Old Task Name",
-            "new_name": "New Task Name",
-            "status": "Current Status",
-            "deadline": "YYYY-MM-DD",
-            "assignee": "Current Assignee"
-        }},
-        {{
-            "task": "New Task",
-            "status": "Not started",
-            "deadline": "YYYY-MM-DD",
-            "assignee": "Person Name"
-        }}
-    ]
+    When updating existing tasks (status/deadline/assignee changes), use this format:
+    {{
+        "operation": "update",
+        "task": "Exact Task Name",
+        "status": "New Status",
+        "deadline": "YYYY-MM-DD",
+        "assignee": "Person Name"
+    }}
+
+      Adding comments has a different process than updating task attributes. For adding comments, use this format:
+    {{
+        "operation": "comment",
+        "task": "Exact Task Name",
+        "comment": "Comment text here"
+    }}
+
+    For all operations, maintain existing values if not being changed.
 
     IMPORTANT:
     1. Return ONLY one JSON array containing ALL operations
@@ -142,27 +141,31 @@ def parse_json_response(response):
         # Validate tasks
         valid_tasks = []
         for task in tasks:
-            if task.get('operation') == 'delete' and task.get('task'):
+            # Handle different operation types
+            operation = task.get('operation', '')
+            
+            if operation == 'delete' and task.get('task'):
                 valid_tasks.append(task)
-            elif task.get('operation') == 'rename' and all(key in task for key in ['old_name', 'new_name', 'status', 'deadline', 'assignee']):
+            elif operation == 'comment' and all(key in task for key in ['task', 'comment']):
+                valid_tasks.append(task)
+            elif operation == 'rename' and all(key in task for key in ['old_name', 'new_name', 'status', 'deadline', 'assignee']):
                 valid_tasks.append(task)
             elif all(key in task for key in ['task', 'status', 'deadline', 'assignee']):
                 valid_tasks.append(task)
             else:
                 print(f"⚠️ Skipping invalid task format: {task}")
         
-        if not valid_tasks:
-            print("❌ No valid tasks found in response")
-            return []
-        
+        # Print operations summary
         print(f"\n📋 Operations to perform:")
         for task in valid_tasks:
             if task.get('operation') == 'delete':
                 print(f"🗑️  Delete: {task['task']}")
+            elif task.get('operation') == 'comment':
+                print(f"💬 Comment on: {task['task']}")
             elif task.get('operation') == 'rename':
                 print(f"✏️  Rename: {task['old_name']} → {task['new_name']}")
             else:
-                deadline = task['deadline'] or 'No deadline'
+                deadline = task.get('deadline') or 'No deadline'
                 print(f"✏️  Task: {task['task']} ({task['status']}) - Due: {deadline}")
 
         return valid_tasks
