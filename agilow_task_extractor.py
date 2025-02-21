@@ -69,38 +69,33 @@ def extract_tasks(transcription):
     2. Update existing tasks
     3. Delete tasks when requested
     4. Rename existing tasks
-    5. Add comments to exsisitng or to new tasks
-    6. Update task properties (assignee, deadline)
+    5. Add comments to tasks
 
-  
-    Sometimes you will be given simple, singular task operations.Sometimes you will be given multiple task operations in once command. 
-    When multiple operations are requested in a single command, combine ALL operations into ONE JSON array.
-    Return ONLY the JSON array, no other text or explanations.
+    Take your time with bulk operations. For example, if asked to "move all tasks assigned to Shiv from Not Started to In Progress and add a comment", break it down into individual operations. For each task, remember to include ALL properties (status, deadline, assignee) even when only some are changing.
 
     When updating existing tasks (status/deadline/assignee changes), use this format:
     {{
         "operation": "update",
         "task": "Exact Task Name",
         "status": "New Status",
-        "deadline": "YYYY-MM-DD",
-        "assignee": "Person Name"
+        "deadline": "YYYY-MM-DD",  // maintain existing if not changing
+        "assignee": "Person Name"   // maintain existing if not changing
     }}
 
-      Adding comments has a different process than updating task attributes. For adding comments, use this format:
+    For adding comments, use:
     {{
         "operation": "comment",
         "task": "Exact Task Name",
         "comment": "Comment text here"
     }}
 
-    For all operations, maintain existing values if not being changed.
-
     IMPORTANT:
     1. Return ONLY one JSON array containing ALL operations
     2. Use EXACT status values from Available Status Options
     3. Use EXACT names from team members list
-    4. Use proper spacing in task names (e.g., "Database Migration Service")
-    5. Use YYYY-MM-DD format for dates
+    4. For bulk updates, create separate operations for each task
+    5. Always maintain existing values when updating tasks
+    6. Return ONLY a JSON array for each task. Do not add any explanation or text.
     """
 
     response = get_gpt_response(prompt)
@@ -141,16 +136,18 @@ def parse_json_response(response):
         # Validate tasks
         valid_tasks = []
         for task in tasks:
-            # Handle different operation types
             operation = task.get('operation', '')
             
             if operation == 'delete' and task.get('task'):
                 valid_tasks.append(task)
             elif operation == 'comment' and all(key in task for key in ['task', 'comment']):
                 valid_tasks.append(task)
-            elif operation == 'rename' and all(key in task for key in ['old_name', 'new_name', 'status', 'deadline', 'assignee']):
+            elif operation == 'rename' and all(key in task for key in ['old_name', 'new_name']):
                 valid_tasks.append(task)
-            elif all(key in task for key in ['task', 'status', 'deadline', 'assignee']):
+            elif operation == 'update' and task.get('task'):
+                valid_tasks.append(task)
+            elif (operation == 'create' or not operation) and task.get('task'):  # Allow both create and no operation
+                task['status'] = task.get('status', 'Not started')
                 valid_tasks.append(task)
             else:
                 print(f"⚠️ Skipping invalid task format: {task}")
@@ -164,9 +161,18 @@ def parse_json_response(response):
                 print(f"💬 Comment on: {task['task']}")
             elif task.get('operation') == 'rename':
                 print(f"✏️  Rename: {task['old_name']} → {task['new_name']}")
+            elif task.get('operation') == 'update':
+                updates = []
+                if 'status' in task: updates.append(f"status: {task['status']}")
+                if 'deadline' in task: updates.append(f"deadline: {task['deadline']}")
+                if 'assignee' in task: updates.append(f"assignee: {task['assignee']}")
+                print(f"✏️  Update {task['task']}: {', '.join(updates)}")
             else:
-                deadline = task.get('deadline') or 'No deadline'
-                print(f"✏️  Task: {task['task']} ({task['status']}) - Due: {deadline}")
+                # New task
+                status = task.get('status', 'Not started')
+                deadline = task.get('deadline', 'No deadline')
+                assignee = task.get('assignee', 'Unassigned')
+                print(f"✨ New Task: {task['task']} ({status}) - Due: {deadline}, Assigned to: {assignee}")
 
         return valid_tasks
         
