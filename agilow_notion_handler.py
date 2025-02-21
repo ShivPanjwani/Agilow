@@ -26,7 +26,7 @@ def format_task_title(number, task_name):
 
 def update_task_in_notion(task_dict, existing_task):
     """Update an existing task in Notion"""
-    users = fetch_users()  # Get fresh user list
+    users = fetch_users()
     page_id = existing_task["id"]
     url = f"https://api.notion.com/v1/pages/{page_id}"
     
@@ -62,7 +62,7 @@ def update_task_in_notion(task_dict, existing_task):
     try:
         response = requests.patch(url, headers=HEADERS, json=data)
         if response.status_code >= 200 and response.status_code < 300:
-            print(f"✅ Updated task: {task_dict['task']}")
+            print(f"✅ Updated task: {task_dict['task']} to {task_dict['status']}")
             return True
         else:
             print(f"❌ Notion API error {response.status_code}: {response.text}")
@@ -138,4 +138,57 @@ def add_to_notion(task_dict):
     except Exception as e:
         print(f"❌ Notion request failed: {str(e)}")
         return False
+
+def delete_from_notion(task_name):
+    """Delete (archive) a task from Notion"""
+    # Find task by name
+    existing_tasks = fetch_tasks()
+    task_to_delete = next(
+        (t for t in existing_tasks 
+         if t["properties"]["Name"]["title"][0]["text"]["content"].lower() == task_name.lower()),
+        None
+    )
+    
+    if not task_to_delete:
+        print(f"❌ Task not found: {task_name}")
+        return False
+        
+    # Archive the page
+    page_id = task_to_delete["id"]
+    url = f"https://api.notion.com/v1/pages/{page_id}"  # Using pages endpoint
+    
+    try:
+        data = {
+            "archived": True,  # This archives the page
+        }
+        response = requests.patch(url, headers=HEADERS, json=data)
+        
+        if response.status_code >= 200 and response.status_code < 300:
+            print(f"✅ Archived task: {task_name}")
+            return True
+        else:
+            print(f"❌ Notion API error {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Notion archive failed: {str(e)}")
+        return False
+
+def handle_task_operations(task_dict):
+    """Route task operations to appropriate handlers"""
+    if task_dict.get('operation') == 'delete':
+        return delete_from_notion(task_dict['task'])
+    elif task_dict.get('operation') == 'rename':
+        # Find existing task and update it
+        existing_tasks = fetch_tasks()
+        existing_task = next(
+            (t for t in existing_tasks 
+             if t["properties"]["Name"]["title"][0]["text"]["content"].lower() == task_dict['old_name'].lower()),
+            None
+        )
+        if existing_task:
+            task_dict['task'] = task_dict['new_name']  # Set the new name
+            return update_task_in_notion(task_dict, existing_task)
+        return False
+    else:
+        return add_to_notion(task_dict)
 

@@ -47,7 +47,7 @@ def format_board_state(tasks):
     return board_state
 
 def extract_tasks(transcription):
-    """Extract tasks from transcription"""
+    """Extract tasks and operations from transcription"""
     current_tasks = fetch_tasks()
     board_state = format_board_state(current_tasks)
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -64,23 +64,44 @@ def extract_tasks(transcription):
     SPOKEN INPUT TO PROCESS:
     "{transcription}"
 
-    Based on the current board state above:
-    1. Use EXACT status values from Available Status Options
-    2. Use EXACT names from team members list
-    3. For existing tasks, use their exact names
-    4. For dates, use YYYY-MM-DD format
+    You are a project management AI. Based on the current board state above, your role is to:
+    1. Create new tasks
+    2. Update existing tasks
+    3. Delete tasks when requested
+    4. Rename existing tasks
+    5. Update task properties (assignee, deadline)
 
-    Return ONLY the JSON array of tasks to create or update.
+    When multiple operations are requested in a single command, combine ALL operations into ONE JSON array.
+    Return ONLY the JSON array, no other text or explanations.
 
-    Example response format:
+    Example of combined operations in one array:
     [
         {{
-            "task": "Task name",
-            "status": "In Progress",  # Must match exactly
+            "task": "Task Name",
+            "operation": "delete"
+        }},
+        {{
+            "operation": "rename",
+            "old_name": "Old Task Name",
+            "new_name": "New Task Name",
+            "status": "Current Status",
             "deadline": "YYYY-MM-DD",
-            "assignee": "Exact Name"
+            "assignee": "Current Assignee"
+        }},
+        {{
+            "task": "New Task",
+            "status": "Not started",
+            "deadline": "YYYY-MM-DD",
+            "assignee": "Person Name"
         }}
     ]
+
+    IMPORTANT:
+    1. Return ONLY one JSON array containing ALL operations
+    2. Use EXACT status values from Available Status Options
+    3. Use EXACT names from team members list
+    4. Use proper spacing in task names (e.g., "Database Migration Service")
+    5. Use YYYY-MM-DD format for dates
     """
 
     response = get_gpt_response(prompt)
@@ -121,7 +142,11 @@ def parse_json_response(response):
         # Validate tasks
         valid_tasks = []
         for task in tasks:
-            if all(key in task for key in ['task', 'status', 'deadline', 'assignee']):
+            if task.get('operation') == 'delete' and task.get('task'):
+                valid_tasks.append(task)
+            elif task.get('operation') == 'rename' and all(key in task for key in ['old_name', 'new_name', 'status', 'deadline', 'assignee']):
+                valid_tasks.append(task)
+            elif all(key in task for key in ['task', 'status', 'deadline', 'assignee']):
                 valid_tasks.append(task)
             else:
                 print(f"⚠️ Skipping invalid task format: {task}")
@@ -130,10 +155,15 @@ def parse_json_response(response):
             print("❌ No valid tasks found in response")
             return []
         
-        print(f"\n📋 Tasks to be added/updated:")
+        print(f"\n📋 Operations to perform:")
         for task in valid_tasks:
-            deadline = task['deadline'] or 'No deadline'
-            print(f"{task['task']} ({task['status']}) - Due: {deadline}")
+            if task.get('operation') == 'delete':
+                print(f"🗑️  Delete: {task['task']}")
+            elif task.get('operation') == 'rename':
+                print(f"✏️  Rename: {task['old_name']} → {task['new_name']}")
+            else:
+                deadline = task['deadline'] or 'No deadline'
+                print(f"✏️  Task: {task['task']} ({task['status']}) - Due: {deadline}")
 
         return valid_tasks
         
