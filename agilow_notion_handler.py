@@ -30,34 +30,25 @@ def update_task_in_notion(task_dict, existing_task):
     page_id = existing_task["id"]
     url = f"https://api.notion.com/v1/pages/{page_id}"
     
-    # Prepare update data
-    data = {
-        "properties": {
-            "Name": {
-                "title": [{"text": {"content": task_dict['task']}}]
-            },
-            "Status": {
-                "status": {"name": task_dict['status']}
-            }
-        }
+    # Build properties to update
+    properties = {
+        "Status": {"status": {"name": task_dict.get('status', existing_task['properties']['Status']['status']['name'])}}
     }
-
-    # Update deadline if provided
-    if task_dict.get('deadline'):
-        data["properties"]["Deadline"] = {
-            "date": {"start": task_dict['deadline']}
-        }
     
-    # Update assignee if provided
-    if task_dict.get('assignee'):
+    # Only include deadline if it's a valid date
+    if 'deadline' in task_dict and task_dict['deadline'] not in ['No deadline', None]:
+        properties["Deadline"] = {"date": {"start": task_dict['deadline']}}
+    
+    # Only include assignee if it's valid
+    if 'assignee' in task_dict and task_dict['assignee']:
         user_id = users.get(task_dict['assignee'])
         if user_id:
-            data["properties"]["Assign"] = {
-                "people": [{"id": user_id}]
-            }
+            properties["Assign"] = {"people": [{"id": user_id}]}
             print(f"✅ Updating assignee to: {task_dict['assignee']}")
         else:
             print(f"⚠️ Could not find user ID for {task_dict['assignee']}")
+
+    data = {"properties": properties}
 
     try:
         response = requests.patch(url, headers=HEADERS, json=data)
@@ -235,4 +226,67 @@ def handle_task_operations(task_dict):
         return False
     else:
         return add_to_notion(task_dict)
+
+def process_task_operations(operations):
+    """Process task operations from GPT"""
+    for operation in operations:
+        if operation.get('operation') == 'comment':
+            # Handle comment operation
+            task_name = operation.get('task')
+            comment_text = operation.get('comment')
+            
+            # Find the task
+            existing_task = find_task_by_name(task_name)
+            if not existing_task:
+                print(f"❌ Task not found: {task_name}")
+                continue
+                
+            # Add comment to the task
+            success = add_comment_to_task(existing_task["id"], comment_text)
+            if success:
+                print(f"✅ Added comment to: {task_name}")
+            else:
+                print(f"❌ Failed to add comment to: {task_name}")
+        elif operation.get('operation') == 'update':
+            # You need code here - this block was empty
+            task_name = operation.get('task')
+            existing_task = find_task_by_name(task_name)
+            if not existing_task:
+                print(f"❌ Task not found: {task_name}")
+                continue
+                
+            success = update_task_in_notion(operation, existing_task)
+            if success:
+                print(f"✅ Updated task: {task_name}")
+            else:
+                print(f"❌ Failed to update task: {task_name}")
+        # Handle other operations...
+
+def add_comment_to_task(page_id, comment_text):
+    """Add a comment to a task in Notion"""
+    url = f"https://api.notion.com/v1/comments"
+    
+    data = {
+        "parent": {
+            "page_id": page_id
+        },
+        "rich_text": [
+            {
+                "text": {
+                    "content": comment_text
+                }
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(url, headers=HEADERS, json=data)
+        if response.status_code == 200:
+            return True
+        else:
+            print(f"❌ Notion API error {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Failed to add comment: {str(e)}")
+        return False
 

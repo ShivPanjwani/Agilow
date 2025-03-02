@@ -31,9 +31,12 @@ def format_board_state(tasks):
         if "Assign" in task["properties"] and task["properties"]["Assign"]["people"]:
             assignee = task["properties"]["Assign"]["people"][0]["name"]
         
-        # Get deadline
-        deadline_prop = task["properties"].get("Deadline", {})
-        deadline = deadline_prop.get("date", {}).get("start", "No deadline") if deadline_prop else "No deadline"
+        # Get deadline - FIXED to handle None values properly
+        deadline = "No deadline"
+        if "Deadline" in task["properties"] and task["properties"]["Deadline"] is not None:
+            date_obj = task["properties"]["Deadline"].get("date")
+            if date_obj:
+                deadline = date_obj.get("start", "No deadline")
             
         statuses[status].append((name, assignee, deadline))
     
@@ -71,7 +74,16 @@ def extract_tasks(transcription):
     4. Rename existing tasks
     5. Add comments to tasks
 
-    Take your time with bulk operations. For example, if asked to "move all tasks assigned to Shiv from Not Started to In Progress and add a comment", break it down into individual operations. For each task, remember to include ALL properties (status, deadline, assignee) even when only some are changing.
+    CRITICAL: Return ONLY a JSON array. Do not include any explanations, text, or comments before or after the JSON array.
+
+    IMPORTANT: When the user asks to "add a comment" or "comment on" a task, use the comment operation format below, NOT the update operation.
+
+    For adding comments, use this format:
+    {{
+        "operation": "comment",
+        "task": "Exact Task Name",
+        "comment": "Comment text here"
+    }}
 
     When updating existing tasks (status/deadline/assignee changes), use this format:
     {{
@@ -82,12 +94,10 @@ def extract_tasks(transcription):
         "assignee": "Person Name"   // maintain existing if not changing
     }}
 
-    For adding comments, use:
-    {{
-        "operation": "comment",
-        "task": "Exact Task Name",
-        "comment": "Comment text here"
-    }}
+    For deadlines:
+    - Use ISO format dates (YYYY-MM-DD)
+    - For "tonight" or "today", use "{current_date}"
+    - If no specific deadline, omit the deadline field entirely
 
     IMPORTANT:
     1. Return ONLY one JSON array containing ALL operations
@@ -146,7 +156,7 @@ def parse_json_response(response):
                 valid_tasks.append(task)
             elif operation == 'update' and task.get('task'):
                 valid_tasks.append(task)
-            elif (operation == 'create' or not operation) and task.get('task'):  # Allow both create and no operation
+            elif (operation == 'create' or not operation) and task.get('task'):
                 task['status'] = task.get('status', 'Not started')
                 valid_tasks.append(task)
             else:
