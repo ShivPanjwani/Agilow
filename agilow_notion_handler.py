@@ -1,4 +1,6 @@
 import requests
+import json
+from datetime import datetime
 from agilow_config import NOTION_API_KEY, NOTION_DATABASE_ID
 
 # Constants
@@ -206,87 +208,169 @@ def add_comment_to_notion(task_dict):
         print(f"❌ Notion comment failed: {str(e)}")
         return False
 
-def handle_task_operations(task_dict):
-    """Route task operations to appropriate handlers"""
-    if task_dict.get('operation') == 'delete':
-        return delete_from_notion(task_dict['task'])
-    elif task_dict.get('operation') == 'comment':
-        return add_comment_to_notion(task_dict)
-    elif task_dict.get('operation') == 'rename':
-        # Find existing task and update it
-        existing_tasks = fetch_tasks()
-        existing_task = next(
-            (t for t in existing_tasks 
-             if t["properties"]["Name"]["title"][0]["text"]["content"].lower() == task_dict['old_name'].lower()),
-            None
-        )
-        if existing_task:
-            task_dict['task'] = task_dict['new_name']  # Set the new name
-            return update_task_in_notion(task_dict, existing_task)
-        return False
-    else:
-        return add_to_notion(task_dict)
-
-def process_task_operations(operations):
-    """Process task operations from GPT"""
-    for operation in operations:
-        if operation.get('operation') == 'comment':
-            # Handle comment operation
-            task_name = operation.get('task')
-            comment_text = operation.get('comment')
-            
-            # Find the task
-            existing_task = find_task_by_name(task_name)
-            if not existing_task:
-                print(f"❌ Task not found: {task_name}")
-                continue
-                
-            # Add comment to the task
-            success = add_comment_to_task(existing_task["id"], comment_text)
-            if success:
-                print(f"✅ Added comment to: {task_name}")
-            else:
-                print(f"❌ Failed to add comment to: {task_name}")
-        elif operation.get('operation') == 'update':
-            # You need code here - this block was empty
-            task_name = operation.get('task')
-            existing_task = find_task_by_name(task_name)
-            if not existing_task:
-                print(f"❌ Task not found: {task_name}")
-                continue
-                
-            success = update_task_in_notion(operation, existing_task)
-            if success:
-                print(f"✅ Updated task: {task_name}")
-            else:
-                print(f"❌ Failed to update task: {task_name}")
-        # Handle other operations...
-
-def add_comment_to_task(page_id, comment_text):
-    """Add a comment to a task in Notion"""
-    url = f"https://api.notion.com/v1/comments"
+def move_task_after(task_id, after_id=None):
+    """Move a task to appear after another task in the board
+    
+    Args:
+        task_id: ID of the task to move
+        after_id: ID of the task that should appear before the moved task.
+                  If None, the task will move to the top.
+    """
+    url = f"https://api.notion.com/v1/pages/{task_id}"
     
     data = {
-        "parent": {
-            "page_id": page_id
-        },
-        "rich_text": [
-            {
-                "text": {
-                    "content": comment_text
-                }
-            }
-        ]
+        "parent": {"database_id": NOTION_DATABASE_ID}
     }
     
+    if after_id:
+        data["after"] = after_id
+    
     try:
-        response = requests.post(url, headers=HEADERS, json=data)
-        if response.status_code == 200:
+        response = requests.patch(url, headers=HEADERS, json=data)
+        if response.status_code >= 200 and response.status_code < 300:
+            print(f"✅ Repositioned task successfully")
             return True
         else:
             print(f"❌ Notion API error {response.status_code}: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Failed to add comment: {str(e)}")
+        print(f"❌ Notion reposition failed: {str(e)}")
         return False
 
+def handle_task_operations(task_dict):
+    """Handle different task operations"""
+    operation = task_dict.get('operation', 'create')
+    
+    if operation == 'create' or not operation:
+        # Create a new task
+        task_name = task_dict.get('task')
+        status = task_dict.get('status', 'Not started')
+        deadline = task_dict.get('deadline')
+        assignee = task_dict.get('assignee')
+        
+        return add_to_notion(task_dict)
+    
+    elif operation == 'update':
+        # Update an existing task
+        task_name = task_dict.get('task')
+        status = task_dict.get('status')
+        deadline = task_dict.get('deadline')
+        assignee = task_dict.get('assignee')
+        
+        # Find the task by name
+        existing_tasks = fetch_tasks()
+        task_to_update = None
+        
+        for task in existing_tasks:
+            if task["properties"]["Name"]["title"][0]["text"]["content"] == task_name:
+                task_to_update = task
+                break
+        
+        if not task_to_update:
+            print(f"❌ Task not found: {task_name}")
+            return False
+        
+        # Update the task
+        return update_task_in_notion(task_dict, task_to_update)
+    
+    elif operation == 'delete':
+        # Delete a task
+        task_name = task_dict.get('task')
+        
+        # Find the task by name
+        existing_tasks = fetch_tasks()
+        task_to_delete = None
+        
+        for task in existing_tasks:
+            if task["properties"]["Name"]["title"][0]["text"]["content"] == task_name:
+                task_to_delete = task
+                break
+        
+        if not task_to_delete:
+            print(f"❌ Task not found: {task_name}")
+            return False
+        
+        # Delete the task
+        return delete_from_notion(task_name)
+    
+    elif operation == 'comment':
+        # Add a comment to a task
+        task_name = task_dict.get('task')
+        comment_text = task_dict.get('comment')
+        
+        # Find the task by name
+        existing_tasks = fetch_tasks()
+        task_to_comment = None
+        
+        for task in existing_tasks:
+            if task["properties"]["Name"]["title"][0]["text"]["content"] == task_name:
+                task_to_comment = task
+                break
+        
+        if not task_to_comment:
+            print(f"❌ Task not found: {task_name}")
+            return False
+        
+        # Add the comment
+        return add_comment_to_notion(task_dict)
+    
+    elif operation == 'rename':
+        # Rename a task
+        old_name = task_dict.get('old_name')
+        new_name = task_dict.get('new_name')
+        
+        # Find the task with the old name
+        existing_tasks = fetch_tasks()
+        task_to_rename = None
+        
+        for task in existing_tasks:
+            if task["properties"]["Name"]["title"][0]["text"]["content"] == old_name:
+                task_to_rename = task
+                break
+        
+        if not task_to_rename:
+            print(f"❌ Task not found: {old_name}")
+            return False
+        
+        # Update the task name
+        return update_task_name(task_to_rename["id"], new_name)
+    
+    elif operation == 'reposition':
+        # Currently not fully supported by Notion API
+        print(f"⚠️ Task repositioning is not currently supported. The task '{task_dict.get('task')}' will remain in its current position.")
+        return True  # Return success to avoid error messages
+    
+    else:
+        print(f"❌ Unknown operation: {operation}")
+        return False
+
+def update_task_name(task_id, new_name):
+    """Update a task's name in Notion"""
+    url = f"https://api.notion.com/v1/pages/{task_id}"
+    
+    data = {
+        "properties": {
+            "Name": {
+                "title": [
+                    {
+                        "text": {
+                            "content": new_name
+                        }
+                    }
+                ]
+            }
+        }
+    }
+    
+    try:
+        response = requests.patch(url, headers=HEADERS, json=data)
+        
+        if response.status_code >= 200 and response.status_code < 300:
+            print(f"✅ Renamed task successfully to: {new_name}")
+            return True
+        else:
+            print(f"❌ Notion API error {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Notion rename failed: {str(e)}")
+        return False
